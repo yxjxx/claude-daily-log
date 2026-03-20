@@ -220,6 +220,41 @@ def _is_trivial_session(conv):
     return all(_TRIVIAL_PATTERNS.match(m["content"]) for m in user_messages)
 
 
+def _looks_like_code(text):
+    """Heuristic: return True if the text looks like pasted code/script."""
+    lines = text.split("\n")
+    if len(lines) < 3:
+        return False
+    # Already has a code fence
+    if text.lstrip().startswith("```"):
+        return False
+    code_indicators = [
+        "#!/",  "if [[ ", "if ((", "for ((", "function ", "local ",
+        "echo ", "cat ", "mkdir ", "curl ", "printf ",
+        "import ", "from ", "def ", "class ", "return ",
+        "const ", "let ", "var ", "function(",
+        "= {", "=> {", "= (", "${", "$(", "<<'EOF'", "<<EOF",
+    ]
+    indicator_count = sum(1 for line in lines for ind in code_indicators if ind in line)
+    return indicator_count >= 3
+
+
+def _format_user_content(text):
+    """Wrap code-like user messages in a code fence."""
+    if _looks_like_code(text):
+        # Try to guess language
+        if "#!/bin/bash" in text or "#!/bin/sh" in text or "${" in text:
+            lang = "bash"
+        elif "import " in text and ("def " in text or "from " in text):
+            lang = "python"
+        elif "const " in text or "function(" in text or "=> {" in text:
+            lang = "javascript"
+        else:
+            lang = ""
+        return f"```{lang}\n{text}\n```"
+    return text
+
+
 def _clean_text(text):
     """Remove system-reminder blocks that may leak into assistant responses."""
     return _SYSTEM_REMINDER_BLOCK.sub("", text).strip()
@@ -332,7 +367,7 @@ def generate_session_note(target_date, session_id, project, conv, session_index)
 
     first_user_msg = ""
     for msg in conv:
-        if msg["role"] == "user":
+        if msg["role"] == "user" and not _TRIVIAL_PATTERNS.match(msg["content"]) and not _looks_like_code(msg["content"]):
             first_user_msg = msg["content"].split("\n")[0][:60]
             break
     title = first_user_msg or f"Session {session_index}"
@@ -360,7 +395,7 @@ def generate_session_note(target_date, session_id, project, conv, session_index)
         if role == "user":
             lines.append(f"## 🧑 User `{time_str}`")
             lines.append("")
-            lines.append(msg["content"])
+            lines.append(_format_user_content(msg["content"]))
             lines.append("")
         elif role == "command":
             lines.append(f"> 🔧 {msg['content']}  `{time_str}`")
@@ -444,7 +479,7 @@ def export_date(target_date):
 
         first_user_msg = ""
         for msg in conv:
-            if msg["role"] == "user":
+            if msg["role"] == "user" and not _TRIVIAL_PATTERNS.match(msg["content"]) and not _looks_like_code(msg["content"]):
                 first_user_msg = msg["content"].split("\n")[0][:60]
                 break
         title = first_user_msg or f"Session {session_index}"
