@@ -471,7 +471,7 @@ def export_date(target_date):
         return False
 
     index_content = generate_daily_index(target_date, session_notes)
-    index_file = day_dir / f"{date_str}.md"
+    index_file = day_dir / f"00 - {date_str}.md"
     index_file.write_text(index_content, encoding="utf-8")
 
     print(f"[{target_date}] Exported {len(session_notes)} sessions to {day_dir}/")
