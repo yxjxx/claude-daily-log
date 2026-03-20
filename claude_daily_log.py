@@ -25,6 +25,7 @@ Usage:
 
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -150,6 +151,28 @@ def find_session_file(session_id):
     return None
 
 
+# Tags that indicate system/command messages, not real user input
+_SYSTEM_TAG_PATTERN = re.compile(
+    r"<(?:local-command-caveat|local-command-stdout|command-name|"
+    r"command-message|command-args|system-reminder|user-prompt-submit-hook)"
+)
+
+# Matches <system-reminder>...</system-reminder> blocks that leak into text
+_SYSTEM_REMINDER_BLOCK = re.compile(
+    r"\s*<system-reminder>[\s\S]*?</system-reminder>\s*", re.MULTILINE
+)
+
+
+def _is_system_message(text):
+    """Return True if the text is a system/command message, not real user input."""
+    return bool(_SYSTEM_TAG_PATTERN.search(text))
+
+
+def _clean_text(text):
+    """Remove system-reminder blocks that may leak into assistant responses."""
+    return _SYSTEM_REMINDER_BLOCK.sub("", text).strip()
+
+
 def extract_conversation(session_file, target_date):
     """Extract user messages and assistant text responses from a session JSONL file.
 
@@ -201,12 +224,15 @@ def extract_conversation(session_file, target_date):
                 flush_assistant()
                 message = obj.get("message", {})
                 content = message.get("content", "")
-                # Only include actual user text input, not tool results
+                # Only include actual user text input, not tool results or system messages
                 if isinstance(content, str) and content.strip():
+                    text = content.strip()
+                    if _is_system_message(text):
+                        continue
                     conversation.append({
                         "role": "user",
                         "time": dt,
-                        "content": content.strip(),
+                        "content": text,
                     })
 
             elif msg_type == "assistant":
@@ -215,7 +241,7 @@ def extract_conversation(session_file, target_date):
                 if isinstance(content, list):
                     for block in content:
                         if isinstance(block, dict) and block.get("type") == "text":
-                            text = block.get("text", "").strip()
+                            text = _clean_text(block.get("text", ""))
                             if text:
                                 if current_assistant_time is None:
                                     current_assistant_time = dt
