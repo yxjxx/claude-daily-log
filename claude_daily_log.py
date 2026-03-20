@@ -151,21 +151,52 @@ def find_session_file(session_id):
     return None
 
 
-# Tags that indicate system/command messages, not real user input
-_SYSTEM_TAG_PATTERN = re.compile(
-    r"<(?:local-command-caveat|local-command-stdout|command-name|"
-    r"command-message|command-args|system-reminder|user-prompt-submit-hook)"
-)
-
-# Matches <system-reminder>...</system-reminder> blocks that leak into text
+# Patterns for parsing system/command messages
 _SYSTEM_REMINDER_BLOCK = re.compile(
     r"\s*<system-reminder>[\s\S]*?</system-reminder>\s*", re.MULTILINE
 )
+_COMMAND_NAME_RE = re.compile(r"<command-name>/?(.+?)</command-name>")
+_LOCAL_STDOUT_RE = re.compile(
+    r"<local-command-stdout>([\s\S]*?)</local-command-stdout>"
+)
+
+# Messages to skip entirely
+_SKIP_PATTERNS = [
+    re.compile(r"<local-command-caveat>"),
+    re.compile(r"<user-prompt-submit-hook>"),
+]
 
 
-def _is_system_message(text):
-    """Return True if the text is a system/command message, not real user input."""
-    return bool(_SYSTEM_TAG_PATTERN.search(text))
+def _transform_user_message(text):
+    """Transform system/command messages into human-friendly format.
+
+    Returns:
+        (str, str) - (role, content) where role is 'user', 'command', or None to skip.
+    """
+    # Skip caveats and hook messages entirely
+    for pat in _SKIP_PATTERNS:
+        if pat.search(text):
+            return None, None
+
+    # Slash commands: /clear, /plugin, etc.
+    m = _COMMAND_NAME_RE.search(text)
+    if m:
+        cmd = m.group(1)
+        return "command", f"`/{cmd}`"
+
+    # Command stdout
+    m = _LOCAL_STDOUT_RE.search(text)
+    if m:
+        stdout = m.group(1).strip()
+        if not stdout or stdout == "(no content)":
+            return None, None
+        return "command_output", f"```\n{stdout}\n```"
+
+    # System reminder in user message
+    if "<system-reminder>" in text:
+        return None, None
+
+    return "user", text
 
 
 def _clean_text(text):
@@ -224,15 +255,15 @@ def extract_conversation(session_file, target_date):
                 flush_assistant()
                 message = obj.get("message", {})
                 content = message.get("content", "")
-                # Only include actual user text input, not tool results or system messages
+                # Only include actual user text input, not tool results
                 if isinstance(content, str) and content.strip():
-                    text = content.strip()
-                    if _is_system_message(text):
+                    role, transformed = _transform_user_message(content.strip())
+                    if role is None:
                         continue
                     conversation.append({
-                        "role": "user",
+                        "role": role,
                         "time": dt,
-                        "content": text,
+                        "content": transformed,
                     })
 
             elif msg_type == "assistant":
@@ -304,12 +335,21 @@ def generate_session_note(target_date, session_id, project, conv, session_index)
 
     for msg in conv:
         time_str = msg["time"].strftime("%H:%M") if msg["time"] else ""
-        if msg["role"] == "user":
+        role = msg["role"]
+        if role == "user":
             lines.append(f"## 🧑 User `{time_str}`")
             lines.append("")
             lines.append(msg["content"])
             lines.append("")
-        else:
+        elif role == "command":
+            lines.append(f"> 🔧 {msg['content']}  `{time_str}`")
+            lines.append("")
+        elif role == "command_output":
+            lines.append(f"> 📋 Command output:")
+            lines.append("")
+            lines.append(msg["content"])
+            lines.append("")
+        else:  # assistant
             lines.append(f"## 🤖 Claude `{time_str}`")
             lines.append("")
             lines.append(msg["content"])
