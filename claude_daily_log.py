@@ -152,13 +152,17 @@ def find_session_file(session_id):
 
 
 # Patterns for parsing system/command messages
-_SYSTEM_REMINDER_BLOCK = re.compile(
-    r"\s*<system-reminder>[\s\S]*?</system-reminder>\s*", re.MULTILINE
+_SYSTEM_BLOCKS_RE = re.compile(
+    r"\s*<(?:system-reminder|task-notification)>[\s\S]*?</(?:system-reminder|task-notification)>\s*",
+    re.MULTILINE,
 )
 _COMMAND_NAME_RE = re.compile(r"<command-name>/?(.+?)</command-name>")
 _LOCAL_STDOUT_RE = re.compile(
     r"<local-command-stdout>([\s\S]*?)</local-command-stdout>"
 )
+_BASH_INPUT_RE = re.compile(r"<bash-input>([\s\S]*?)</bash-input>")
+_BASH_STDOUT_RE = re.compile(r"<bash-stdout>([\s\S]*?)</bash-stdout>")
+_BASH_STDERR_RE = re.compile(r"<bash-stderr>([\s\S]*?)</bash-stderr>")
 
 # Trivial messages that don't constitute meaningful conversation
 _TRIVIAL_PATTERNS = re.compile(
@@ -169,6 +173,23 @@ _TRIVIAL_PATTERNS = re.compile(
     r"你是什么模型|what model|which model|你是谁|who are you|"
     r"test|测试|ping"
     r")[？?！!。.\s]*$",
+    re.IGNORECASE
+)
+
+# Patterns that make bad titles (HTML, commands, terminal prompts)
+_BAD_TITLE_PATTERNS = re.compile(
+    r"^("
+    r"<[a-z]|"                        # HTML tags
+    r"<bash-|"                        # bash XML tags
+    r"[~$]\s|"                        # shell prompt (~/ or $)
+    r"ssh\s|scp\s|rsync\s|"          # remote commands
+    r"docker\s|kubectl\s|"           # infra commands
+    r"git\s|cd\s|ls\s|cat\s|rm\s|"  # common shell commands
+    r"sudo\s|chmod\s|chown\s|"      # admin commands
+    r"curl\s|wget\s|pip\s|npm\s|"   # package/download commands
+    r"[a-zA-Z0-9_.@-]+:\s*[~/]|"    # terminal prompts like user@host: ~
+    r"Accessing\s|Loading\s"         # Claude Code UI text
+    r")",
     re.IGNORECASE
 )
 
@@ -204,8 +225,38 @@ def _transform_user_message(text):
             return None, None
         return "command_output", f"```\n{stdout}\n```"
 
-    # System reminder in user message
-    if "<system-reminder>" in text:
+    # Bash input/output tags (from terminal interactions)
+    m = _BASH_INPUT_RE.search(text)
+    if m:
+        cmd = m.group(1).strip()
+        stdout = ""
+        m2 = _BASH_STDOUT_RE.search(text)
+        if m2:
+            stdout = m2.group(1).strip()
+        if not cmd:
+            return None, None
+        if stdout:
+            return "command_output", f"`$ {cmd}`\n\n```\n{stdout}\n```"
+        return "command", f"`$ {cmd}`"
+
+    # Standalone bash stdout (no input tag)
+    m = _BASH_STDOUT_RE.search(text)
+    if m:
+        stdout = m.group(1).strip()
+        if not stdout:
+            return None, None
+        return "command_output", f"```\n{stdout}\n```"
+
+    # Standalone bash stderr
+    if _BASH_STDERR_RE.search(text):
+        m = _BASH_STDERR_RE.search(text)
+        stderr = m.group(1).strip()
+        if not stderr:
+            return None, None
+        return "command_output", f"```\n{stderr}\n```"
+
+    # System reminder / task notification in user message
+    if "<system-reminder>" in text or "<task-notification>" in text:
         return None, None
 
     return "user", text
@@ -239,6 +290,16 @@ def _looks_like_code(text):
     return indicator_count >= 3
 
 
+def _fence_wrap(text, lang=""):
+    """Wrap text in a code fence, using enough backticks to avoid conflicts."""
+    # Find the longest run of backticks in the text
+    max_ticks = 2
+    for m in re.finditer(r"`+", text):
+        max_ticks = max(max_ticks, len(m.group()))
+    fence = "`" * (max_ticks + 1)
+    return f"{fence}{lang}\n{text}\n{fence}"
+
+
 def _format_user_content(text):
     """Wrap code-like user messages in a code fence."""
     if _looks_like_code(text):
@@ -251,13 +312,13 @@ def _format_user_content(text):
             lang = "javascript"
         else:
             lang = ""
-        return f"```{lang}\n{text}\n```"
+        return _fence_wrap(text, lang)
     return text
 
 
 def _clean_text(text):
-    """Remove system-reminder blocks that may leak into assistant responses."""
-    return _SYSTEM_REMINDER_BLOCK.sub("", text).strip()
+    """Remove system-reminder and task-notification blocks from assistant responses."""
+    return _SYSTEM_BLOCKS_RE.sub("", text).strip()
 
 
 def extract_conversation(session_file, target_date):
@@ -367,7 +428,7 @@ def generate_session_note(target_date, session_id, project, conv, session_index)
 
     first_user_msg = ""
     for msg in conv:
-        if msg["role"] == "user" and not _TRIVIAL_PATTERNS.match(msg["content"]) and not _looks_like_code(msg["content"]):
+        if msg["role"] == "user" and not _TRIVIAL_PATTERNS.match(msg["content"]) and not _looks_like_code(msg["content"]) and not _BAD_TITLE_PATTERNS.match(msg["content"]):
             first_user_msg = msg["content"].split("\n")[0][:60]
             break
     title = first_user_msg or f"Session {session_index}"
@@ -479,7 +540,7 @@ def export_date(target_date):
 
         first_user_msg = ""
         for msg in conv:
-            if msg["role"] == "user" and not _TRIVIAL_PATTERNS.match(msg["content"]) and not _looks_like_code(msg["content"]):
+            if msg["role"] == "user" and not _TRIVIAL_PATTERNS.match(msg["content"]) and not _looks_like_code(msg["content"]) and not _BAD_TITLE_PATTERNS.match(msg["content"]):
                 first_user_msg = msg["content"].split("\n")[0][:60]
                 break
         title = first_user_msg or f"Session {session_index}"
