@@ -160,6 +160,18 @@ _LOCAL_STDOUT_RE = re.compile(
     r"<local-command-stdout>([\s\S]*?)</local-command-stdout>"
 )
 
+# Trivial messages that don't constitute meaningful conversation
+_TRIVIAL_PATTERNS = re.compile(
+    r"^("
+    r"h[ie]|hey|hello|yo|sup|嗨|你好|哈[喽啰罗]|"
+    r"ok|okay|好的?|嗯|行|可以|知道了|收到|谢谢|thanks|thx|ty|"
+    r"bye|再见|exit|quit|"
+    r"你是什么模型|what model|which model|你是谁|who are you|"
+    r"test|测试|ping"
+    r")[？?！!。.\s]*$",
+    re.IGNORECASE
+)
+
 # Messages to skip entirely
 _SKIP_PATTERNS = [
     re.compile(r"<local-command-caveat>"),
@@ -197,6 +209,15 @@ def _transform_user_message(text):
         return None, None
 
     return "user", text
+
+
+def _is_trivial_session(conv):
+    """Return True if the session has no substantive user messages."""
+    user_messages = [m for m in conv if m["role"] == "user"]
+    if not user_messages:
+        return True
+    # If every user message is trivial, skip the session
+    return all(_TRIVIAL_PATTERNS.match(m["content"]) for m in user_messages)
 
 
 def _clean_text(text):
@@ -413,6 +434,8 @@ def export_date(target_date):
             continue
         conv = extract_conversation(session_file, target_date)
         if not conv:
+            continue
+        if _is_trivial_session(conv):
             continue
 
         session_index += 1
