@@ -1,6 +1,6 @@
 # claude-daily-log
 
-Export Claude Code and OpenAI Codex CLI conversations to Obsidian — one folder per day, one note per session.
+Export Claude Code, OpenAI Codex CLI, and OpenClaw conversations to Obsidian — one folder per day, one note per session.
 
 ## Output Structure
 
@@ -15,6 +15,12 @@ Codex Logs/
   2026-03-20/
     00 - 2026-03-20.md                 ← daily index
     01 - Debug API endpoint.md         ← session 1
+
+OpenClaw Logs/
+  2026-03-20/
+    00 - 2026-03-20.md                 ← daily index
+    01 - daily-115-cloud-cleanup.md    ← cron task
+    02 - 转存最新资源.md                ← user conversation
 ```
 
 ## Setup
@@ -42,6 +48,7 @@ Edit `config.json` or set environment variables:
 | `obsidian_vault` | `OBSIDIAN_VAULT` | auto-detect | Path to Obsidian vault root |
 | `output_subdir` | `OUTPUT_SUBDIR` | `Claude Logs` | Subfolder within vault for Claude |
 | `codex_output_subdir` | `CODEX_OUTPUT_SUBDIR` | `Codex Logs` | Subfolder within vault for Codex |
+| `openclaw_output_subdir` | `OPENCLAW_OUTPUT_SUBDIR` | `OpenClaw Logs` | Subfolder within vault for OpenClaw |
 | `timezone_offset` | `TIMEZONE_OFFSET` | `8` | UTC offset in hours |
 
 Auto-detection checks these locations:
@@ -52,19 +59,20 @@ Auto-detection checks these locations:
 ## Usage
 
 ```bash
-# Export today (Claude)
+# Export today
 python3 claude_daily_log.py
-
-# Export today (Codex)
 python3 codex_daily_log.py
+python3 openclaw_daily_log.py
 
 # Export specific date
 python3 claude_daily_log.py 2026-03-20
 python3 codex_daily_log.py 2026-03-20
+python3 openclaw_daily_log.py 2026-03-20
 
 # Backfill last N days
 python3 claude_daily_log.py --backfill 30
 python3 codex_daily_log.py --backfill 30
+python3 openclaw_daily_log.py --backfill 30
 ```
 
 ## How It Works
@@ -84,8 +92,16 @@ python3 codex_daily_log.py --backfill 30
 3. Extracts user messages and Codex's text responses from session events
 4. Writes notes in the same format, with `codex-log` tags
 
+### OpenClaw (`openclaw_daily_log.py`)
+
+1. Scans `~/.openclaw/agents/*/sessions/*.jsonl` across all agents
+2. Strips Telegram/channel metadata wrappers from user messages
+3. Identifies cron-triggered vs user-initiated conversations (tagged separately)
+4. Filters out system messages (heartbeat, session startup)
+5. Writes notes with `openclaw-log` tags (and `cron` tag for automated tasks)
+
 ## Requirements
 
 - Python 3.6+ (standard library only, no external packages)
-- Claude Code (`~/.claude/`) and/or Codex CLI (`~/.codex/`)
+- Claude Code (`~/.claude/`) and/or Codex CLI (`~/.codex/`) and/or OpenClaw (`~/.openclaw/`)
 - macOS for LaunchAgent (or set up your own cron on Linux)

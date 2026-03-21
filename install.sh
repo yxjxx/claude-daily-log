@@ -15,6 +15,7 @@ fi
 
 echo "Scripts: $SCRIPT_DIR/claude_daily_log.py"
 echo "         $SCRIPT_DIR/codex_daily_log.py"
+echo "         $SCRIPT_DIR/openclaw_daily_log.py"
 echo "Python:  $PYTHON"
 echo "Plist:   $PLIST_PATH"
 echo ""
@@ -31,6 +32,7 @@ cat > "$WRAPPER" <<WRAPPER_EOF
 #!/bin/bash
 $PYTHON $SCRIPT_DIR/claude_daily_log.py
 $PYTHON $SCRIPT_DIR/codex_daily_log.py
+$PYTHON $SCRIPT_DIR/openclaw_daily_log.py
 WRAPPER_EOF
 chmod +x "$WRAPPER"
 
@@ -63,7 +65,9 @@ EOF
 launchctl load "$PLIST_PATH"
 echo "Installed and loaded. Will run daily at 23:50."
 echo ""
-echo "Test Claude: $PYTHON $SCRIPT_DIR/claude_daily_log.py"
-echo "Test Codex:  $PYTHON $SCRIPT_DIR/codex_daily_log.py"
-echo "Backfill:    $PYTHON $SCRIPT_DIR/claude_daily_log.py --backfill 30"
-echo "             $PYTHON $SCRIPT_DIR/codex_daily_log.py --backfill 30"
+echo "Test Claude:   $PYTHON $SCRIPT_DIR/claude_daily_log.py"
+echo "Test Codex:    $PYTHON $SCRIPT_DIR/codex_daily_log.py"
+echo "Test OpenClaw: $PYTHON $SCRIPT_DIR/openclaw_daily_log.py"
+echo "Backfill:      $PYTHON $SCRIPT_DIR/claude_daily_log.py --backfill 30"
+echo "               $PYTHON $SCRIPT_DIR/codex_daily_log.py --backfill 30"
+echo "               $PYTHON $SCRIPT_DIR/openclaw_daily_log.py --backfill 30"
