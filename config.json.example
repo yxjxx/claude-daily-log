@@ -1,5 +1,6 @@
 {
     "obsidian_vault": "/path/to/your/obsidian/vault",
     "output_subdir": "Claude Logs",
+    "codex_output_subdir": "Codex Logs",
     "timezone_offset": 8
 }

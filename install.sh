@@ -13,7 +13,8 @@ if ! command -v $PYTHON &>/dev/null; then
     PYTHON="$(command -v python3)"
 fi
 
-echo "Script:  $SCRIPT_DIR/claude_daily_log.py"
+echo "Scripts: $SCRIPT_DIR/claude_daily_log.py"
+echo "         $SCRIPT_DIR/codex_daily_log.py"
 echo "Python:  $PYTHON"
 echo "Plist:   $PLIST_PATH"
 echo ""
@@ -24,6 +25,15 @@ if launchctl list | grep -q "com.claude-daily-log"; then
     launchctl unload "$PLIST_PATH" 2>/dev/null || true
 fi
 
+# Create a wrapper script that runs both exporters
+WRAPPER="$SCRIPT_DIR/run_all.sh"
+cat > "$WRAPPER" <<WRAPPER_EOF
+#!/bin/bash
+$PYTHON $SCRIPT_DIR/claude_daily_log.py
+$PYTHON $SCRIPT_DIR/codex_daily_log.py
+WRAPPER_EOF
+chmod +x "$WRAPPER"
+
 cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -33,8 +43,7 @@ cat > "$PLIST_PATH" <<EOF
     <string>com.claude-daily-log</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$PYTHON</string>
-        <string>$SCRIPT_DIR/claude_daily_log.py</string>
+        <string>$WRAPPER</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -54,5 +63,7 @@ EOF
 launchctl load "$PLIST_PATH"
 echo "Installed and loaded. Will run daily at 23:50."
 echo ""
-echo "Test now with: $PYTHON $SCRIPT_DIR/claude_daily_log.py"
-echo "Backfill with: $PYTHON $SCRIPT_DIR/claude_daily_log.py --backfill 30"
+echo "Test Claude: $PYTHON $SCRIPT_DIR/claude_daily_log.py"
+echo "Test Codex:  $PYTHON $SCRIPT_DIR/codex_daily_log.py"
+echo "Backfill:    $PYTHON $SCRIPT_DIR/claude_daily_log.py --backfill 30"
+echo "             $PYTHON $SCRIPT_DIR/codex_daily_log.py --backfill 30"
