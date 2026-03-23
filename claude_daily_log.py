@@ -521,6 +521,10 @@ def export_date(target_date):
     day_dir = OUTPUT_DIR / date_str
     day_dir.mkdir(parents=True, exist_ok=True)
 
+    # Clean previous session files to avoid duplicate numbering on re-runs
+    for old_file in day_dir.glob("*.md"):
+        old_file.unlink()
+
     session_notes = []
     session_index = 0
 
